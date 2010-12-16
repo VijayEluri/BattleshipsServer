@@ -1,9 +1,7 @@
 import java.net.*;
 import java.io.*;
 import java.util.LinkedList;
-import java.util.List;
 import java.util.Scanner;
-import java.util.Collections;
 import java.sql.Timestamp;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -11,13 +9,8 @@ import java.util.concurrent.locks.ReentrantLock;
 public class BattleshipsServer implements BattleshipsServerInterface {
 
     private static final int SERVER_PORT = 22191;
-    private static final int WORLD_WIDTH = 100;
-    private static final int WORLD_HEIGHT = 100;
-
-    private static final int NORTH = 1;
-    private static final int EAST = 2;
-    private static final int WEST = 3;
-    private static final int SOUTH = 4;
+    private static final int WORLD_WIDTH = 50;
+    private static final int WORLD_HEIGHT = 50;
 
     private ServerListener listener;
     private ServerSocket ssocket;
@@ -60,16 +53,16 @@ public class BattleshipsServer implements BattleshipsServerInterface {
         if (c.current == null) return false;
         Coordinate newLoc = null;
         switch (direction) {
-            case NORTH:
+            case Coordinate.NORTH:
                 newLoc = new Coordinate(c.current.x+1, c.current.y);
                 break;
-            case EAST:
+            case Coordinate.EAST:
                 newLoc = new Coordinate(c.current.x, c.current.y+1);
                 break;
-            case WEST:
+            case Coordinate.WEST:
                 newLoc = new Coordinate(c.current.x, c.current.y-1);
                 break;
-            case SOUTH:
+            case Coordinate.SOUTH:
                 newLoc = new Coordinate(c.current.x-1, c.current.y);
                 break;
             default:
@@ -173,14 +166,14 @@ public class BattleshipsServer implements BattleshipsServerInterface {
                 System.out.println("Clients currently connected:");
                 BattleshipsServer.this.clientLock.lock();
                 try {
-                if (BattleshipsServer.this.clients.size() == 0) {
-                    System.out.println("No clients connected"); 
-                    return;
-                }
-                for (ServerThread t : BattleshipsServer.this.clients) {
-                    //Timestamp connected_time = new Timestamp(System.currentTimeMillis() - t.connected);
-                    System.out.println(t.host + " " + t.connected);
-                }
+                    if (BattleshipsServer.this.clients.size() == 0) {
+                        System.out.println("No clients connected"); 
+                        return;
+                    }
+                    for (int i=0;i<BattleshipsServer.this.clients.size();i++) {
+                        ServerThread t = BattleshipsServer.this.clients.get(i);
+                        System.out.println(t.host + " " + t.connected);
+                    }
                 } catch (Exception e) { e.printStackTrace(); 
                 } finally { 
                     BattleshipsServer.this.clientLock.unlock();
@@ -277,6 +270,8 @@ public class BattleshipsServer implements BattleshipsServerInterface {
                         lastAction = System.currentTimeMillis();
                         input = "";
                     }
+                    try { sleep(500);} 
+                    catch (InterruptedException e) { e.printStackTrace(); }
                 }
             } catch (IOException e) { e.printStackTrace(); }
         }
@@ -285,37 +280,41 @@ public class BattleshipsServer implements BattleshipsServerInterface {
             // What will i do with the commands....?
             String[] split = s.split(" ");
             boolean status = false;
-            String outMsg = "ACK ";
+            int seqno = 0;
+            try { seqno = Integer.parseInt(split[0]); }
+            catch (NumberFormatException e) { e.printStackTrace(); }
+            String goodOutMsg = seqno + " ACK ";
+            String badOutMsg = seqno + " NAK ";
 
             if (split.length <= 0)
                 return;
 
-            if (split[0].equalsIgnoreCase("MOVE")) {
+            if (split[1].equalsIgnoreCase("MOVE")) {
                 status = BattleshipsServer.this.move(Integer.parseInt(split[1]),
                                             client);
                 if (status) {
-                    outMsg += input;
-                    sendMessage(outMsg);
+                    goodOutMsg += input;
+                    sendMessage(goodOutMsg);
                 }
-            } else if (split[0].equalsIgnoreCase("FIRE")) {
+            } else if (split[1].equalsIgnoreCase("FIRE")) {
                 status = BattleshipsServer.this.fire(Integer.parseInt(split[1]),
                                             Integer.parseInt(split[2]));
-            } else if (split[0].equalsIgnoreCase("LOGIN")) {
+            } else if (split[1].equalsIgnoreCase("LOGIN")) {
                 Client newClient = BattleshipsServer.this.login(split[1], split[2]);
                 if (newClient == null) {
-                    sendMessage("NAK " + s);
+                    sendMessage(badOutMsg + s);
                 } else {
                     this.client = newClient;
-                    outMsg += input;
-                    sendMessage(outMsg);
+                    goodOutMsg += input;
+                    sendMessage(goodOutMsg);
                 }
             } else {
-                sendMessage("NAK " +s);
+                sendMessage(badOutMsg +s);
             }
         }
 
         private void sendMessage(String s) {
-            System.out.println("S: " + s);
+            System.out.println("S: ["+s+"]");
             out.println(s);
         }
     }
