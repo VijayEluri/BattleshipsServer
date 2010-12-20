@@ -1,6 +1,8 @@
 import java.net.*;
 import java.util.*;
 import java.io.*;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.LinkedBlockingQueue;
 
 public class BattleshipsClient implements Observer {
     private Socket s;
@@ -11,6 +13,7 @@ public class BattleshipsClient implements Observer {
     private Scanner in;
     private int goodSeq;
     private int seqNo;
+    private static Thread console_thread;
 
     public BattleshipsClient () { 
         // Instantiate the console...
@@ -49,6 +52,15 @@ public class BattleshipsClient implements Observer {
                 msg += " ";
             }
             client_thread.sendMessage(msg);
+        } else if (split[0].equals("q") || split[0].equals("queue")) {
+            if (client_thread != null) {
+                client_thread.printQueue();
+            }
+        } else if (split[0].equals("thread")) {
+            System.out.println("Thread state:");
+            System.out.println("---------------");
+            System.out.println("Console: \t"+console_thread.getState());
+            client_thread.thread_state();
         } else {
             System.out.println("Command not supported");
         }
@@ -60,6 +72,7 @@ public class BattleshipsClient implements Observer {
         try { s = new Socket("scottio.us", 22191); }
         catch (IOException e) {e.printStackTrace();}
         client_thread = new ClientThread(s);
+        client_thread.start();
     }
 
     public void close () {
@@ -70,10 +83,10 @@ public class BattleshipsClient implements Observer {
     }
 
     public class ClientSender implements Runnable, Observer {
-        private LinkedList<String> queue;
+        private final LinkedBlockingQueue<Message> queue;
         private PrintWriter out;
         private Socket socket;
-        private boolean running;
+        private boolean running = true;
         private int seqno;
         private int ack_seqno;
         private final int WINDOW_SIZE = 10;
@@ -84,10 +97,14 @@ public class BattleshipsClient implements Observer {
             this.seqno = 0;
 
             try {
-                out = new PrintWriter(socket.getOutputStream(), true);
+                out = new PrintWriter(s.getOutputStream(), true);
             } catch (IOException e) {
                 e.printStackTrace();
             }
+
+            queue = new LinkedBlockingQueue<Message>();
+            seqno = 0;
+            ack_seqno = 0;
         }
 
         public void update(Observable obj, Object arg) {
@@ -110,16 +127,40 @@ public class BattleshipsClient implements Observer {
         }
 
         public void run () {
-            while (running) {
-                if (queue.size() > 0 && seqno - ack_seqno < WINDOW_SIZE) {
-                    out.println(seqno+" "+queue.removeFirst());
+            while ( true ) {
+                try {
+                    consume(queue.take());
+                } catch (InterruptedException e) { 
+                    e.printStackTrace(); 
                 }
             }
-
+        }
+    
+        private void consume (Message m) {
+            out.println(seqno+" "+m.message);
+            System.out.println("Sending ["+m.seqno+" "+m.message+"]");
         }
 
+        private void printQueue() {
+            System.out.print("["+queue.size()+"]: ");
+            Iterator itr = queue.iterator();
+            while(itr.hasNext()) {
+                Message m = (Message)itr.next();
+                System.out.print(m.message);
+                if (itr.hasNext()) System.out.print("-->");
+            }
+            System.out.println("");
+        }
+    
         public void sendMessage(String s) {
-            queue.addLast(s);
+            try {
+                Message m = new Message(s, seqno);
+                queue.offer(m, 100, TimeUnit.MILLISECONDS);
+                //queue.put(m);
+                seqno++;
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
         }
 
         public void close() {
@@ -134,16 +175,19 @@ public class BattleshipsClient implements Observer {
     public class ClientListener extends Observable implements Runnable {
         private Socket socket;
         private BufferedReader in;
+        private InputStreamReader isr;
         private boolean running;
         private String msg;
 
         public ClientListener (Socket s) {
             this.socket = s;
             try {
-                in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                isr = new InputStreamReader(socket.getInputStream());
+                in = new BufferedReader(isr);
             } catch (IOException e) {
                 e.printStackTrace();
             }
+            this.running = true;
         }
 
         public void run () {
@@ -154,15 +198,19 @@ public class BattleshipsClient implements Observer {
                         notifyObservers( msg );
                         msg = "";
                     }
-                } catch (IOException e) {}
+                } catch (IOException e) { e.printStackTrace(); }
             }
         }
 
         public void close() {
+            running = false;
             try {
                 this.socket.close();
                 System.out.println("Closing connection...");
-            } catch (IOException e) {}
+                this.in.close();
+                this.isr.close();
+                System.out.println("Closing input reader...");
+            } catch (IOException e) { e.printStackTrace(); }
         }
 
     }
@@ -199,7 +247,25 @@ public class BattleshipsClient implements Observer {
                     retry = false;
                 } catch (InterruptedException e) { e.printStackTrace(); }
             }
-       }
+        }
+        public void printQueue() {
+            sender.printQueue();
+        }
+        public void thread_state() {
+            if (t_listener != null)
+                System.out.println("Listener:\t"+t_listener.getState());
+            if (t_sender != null)
+                System.out.println("Sender:  \t"+t_sender.getState());
+        }
+    }
+
+    public class Message {
+        public String message;
+        public int seqno;
+        public Message (String s, int i) {
+            message = s;
+            seqno = i;
+        }
     }
 
     public static void main (String[] args) {
@@ -210,7 +276,7 @@ public class BattleshipsClient implements Observer {
 
         console.addObserver(bc);
 
-        Thread console_thread = new Thread(console);
+        console_thread = new Thread(console);
         console_thread.start();
     }
 }

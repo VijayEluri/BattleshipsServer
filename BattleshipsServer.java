@@ -5,32 +5,28 @@ import java.util.Scanner;
 import java.sql.Timestamp;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.Observer;
+import java.util.Observable;
 
-public class BattleshipsServer implements BattleshipsServerInterface {
+public class BattleshipsServer implements BattleshipsServerInterface, Observer {
 
     private static final int SERVER_PORT = 22191;
     private static final int WORLD_WIDTH = 50;
     private static final int WORLD_HEIGHT = 50;
+    private static final String PS1 = "Battleships Server> ";
 
     private ServerListener listener;
     private ServerSocket ssocket;
     private Socket socket;
-    private Scanner in;
-    private LinkedList<ServerThread> clients;
+    private static LinkedList<ServerThread> clients;
     private KeepaliveThread keepalive;
     private int[][] world;
-    private Lock clientLock;
+    private static Lock clientLock;
 
     public BattleshipsServer () {
         // A list of each client that has connected
         clients = new LinkedList<ServerThread>();
         clientLock = new ReentrantLock();
-
-        // Instantiate the console...
-        System.out.print('\f');
-        System.out.println("Starting the Battleships server...");
-        in = new Scanner(System.in);
-        new ReaderThread().start();
 
         // Instantiate the parent thread which will be listening for new
         // connections
@@ -43,6 +39,55 @@ public class BattleshipsServer implements BattleshipsServerInterface {
 
         // Instatiate the world
         world = new int[WORLD_WIDTH][WORLD_HEIGHT];
+    }
+
+    public void update (Observable obj, Object arg) {
+        // All classes that we are observing will notify us through this call
+        // i.e. the console
+        String response;
+        if (obj instanceof Console) {
+            if (arg instanceof String) {
+                response = (String) arg;
+                parseCLI(response);
+            }
+        }
+    }
+
+    private void parseCLI (String s) {
+        if (s.equalsIgnoreCase("help")) {
+            System.out.println("Help is not available");
+        } else if (s.equalsIgnoreCase("who")) {
+            System.out.println("Clients currently connected:");
+            clientLock.lock();
+            try {
+                if (clients.size() == 0) {
+                    System.out.println("No clients connected"); 
+                } else {
+                    for (int i=0;i<clients.size();i++) {
+                        ServerThread t = clients.get(i);
+                        System.out.println(t.host + " " + t.connected);
+                    }
+                }
+            } catch (Exception e) { e.printStackTrace(); 
+            } finally { 
+                clientLock.unlock();
+            }
+        } else if (s.equalsIgnoreCase("print world")) {
+            for (int i=0;i<WORLD_WIDTH;i++) {
+                for (int j=0;j<WORLD_HEIGHT;j++) {
+                    if (world[i][j] == 0)
+                        System.out.print(".");
+                    else
+                        System.out.print(world[i][j]);
+                }
+                System.out.println("");
+            }
+        } else if (s.equalsIgnoreCase("exit") || s.equalsIgnoreCase("quit")) {
+            System.exit(0);
+        } else {
+            System.out.println("Command not supported");
+        }
+        System.out.print(PS1);
     }
 
     /* Here is where we implement the Server methods */
@@ -127,7 +172,8 @@ public class BattleshipsServer implements BattleshipsServerInterface {
                     if (world[current.x+i][current.y+j] == 0) {
                         world[previous.x][previous.y] = 0;
                         world[current.x+i][current.y+j] = uid;
-                        System.out.println("<Server>: Placing player at ("+current.x+","+current.y+")");
+                        System.out.println("<Server>: Placing player at ("
+                            +current.x+","+current.y+")");
                         return new Coordinate(current.x+i, current.y+j);
                     }
                 }
@@ -145,59 +191,6 @@ public class BattleshipsServer implements BattleshipsServerInterface {
 
     }
 
-    public class ReaderThread extends Thread {
-        
-        private boolean running = true;
-
-        public ReaderThread () {
-        }
-
-        public void run () {
-            while (running) {
-                System.out.print("Battleships Server> ");
-                parse(BattleshipsServer.this.in.nextLine());
-            }
-        }
-
-        private void parse (String s) {
-            if (s.equalsIgnoreCase("help")) {
-                System.out.println("Help is not available");
-            } else if (s.equalsIgnoreCase("who")) {
-                System.out.println("Clients currently connected:");
-                BattleshipsServer.this.clientLock.lock();
-                try {
-                    if (BattleshipsServer.this.clients.size() == 0) {
-                        System.out.println("No clients connected"); 
-                        return;
-                    }
-                    for (int i=0;i<BattleshipsServer.this.clients.size();i++) {
-                        ServerThread t = BattleshipsServer.this.clients.get(i);
-                        System.out.println(t.host + " " + t.connected);
-                    }
-                } catch (Exception e) { e.printStackTrace(); 
-                } finally { 
-                    BattleshipsServer.this.clientLock.unlock();
-                }
-            } else if (s.equalsIgnoreCase("print world")) {
-                for (int i=0;i<WORLD_WIDTH;i++) {
-                    for (int j=0;j<WORLD_HEIGHT;j++) {
-                        if (world[i][j] == 0)
-                            System.out.print(".");
-                        else
-                            System.out.print(world[i][j]);
-                    }
-                    System.out.println("");
-                }
-            } else if (s.equalsIgnoreCase("exit") || s.equalsIgnoreCase("quit")) {
-                System.out.println("");
-                running = false;
-                System.exit(0);
-            } else {
-                System.out.println("Command not supported");
-            }
-        }
-    }
-
     public class ServerListener extends Thread {
         // Constantly query for new connection
         // when we see a new connection, spawn a new
@@ -209,20 +202,20 @@ public class BattleshipsServer implements BattleshipsServerInterface {
 
         public void run () {
             try {
-                BattleshipsServer.this.ssocket = new ServerSocket(BattleshipsServer.this.SERVER_PORT);
+                ssocket = new ServerSocket(SERVER_PORT);
 
                 while (listening) {
-                    Socket newClient = BattleshipsServer.this.ssocket.accept();
+                    Socket newClient = ssocket.accept();
                     System.out.println("\nClient connected");
                     try {
                         ServerThread t = new ServerThread(newClient);
-                        BattleshipsServer.this.clientLock.lock();
+                        clientLock.lock();
                         try {
-                            BattleshipsServer.this.clients.add(t);
+                            clients.add(t);
                         } catch (Exception e) {
                             e.printStackTrace();
                         } finally {
-                            BattleshipsServer.this.clientLock.unlock();
+                            clientLock.unlock();
                         }
                         t.start();
                     } catch (IOException e) { e.printStackTrace(); }
@@ -290,17 +283,17 @@ public class BattleshipsServer implements BattleshipsServerInterface {
                 return;
 
             if (split[1].equalsIgnoreCase("MOVE")) {
-                status = BattleshipsServer.this.move(Integer.parseInt(split[1]),
+                status = move(Integer.parseInt(split[1]),
                                             client);
                 if (status) {
                     goodOutMsg += input;
                     sendMessage(goodOutMsg);
                 }
             } else if (split[1].equalsIgnoreCase("FIRE")) {
-                status = BattleshipsServer.this.fire(Integer.parseInt(split[1]),
+                status = fire(Integer.parseInt(split[1]),
                                             Integer.parseInt(split[2]));
             } else if (split[1].equalsIgnoreCase("LOGIN")) {
-                Client newClient = BattleshipsServer.this.login(split[1], split[2]);
+                Client newClient = login(split[1], split[2]);
                 if (newClient == null) {
                     sendMessage(badOutMsg + s);
                 } else {
@@ -324,8 +317,8 @@ public class BattleshipsServer implements BattleshipsServerInterface {
         // who have dropped and disconnect them
         
         private boolean running;
-        private final int SOFT_TIMEOUT = 10000;
-        private final int HARD_TIMEOUT = 20000;
+        private final int SOFT_TIMEOUT = 100000;
+        private final int HARD_TIMEOUT = 200000;
         private final int CHECK_TIMER = 1000;
 
         public KeepaliveThread () {
@@ -335,7 +328,7 @@ public class BattleshipsServer implements BattleshipsServerInterface {
         public void run () {
             while (running) {
                 long now = System.currentTimeMillis();
-                BattleshipsServer.this.clientLock.lock();
+                clientLock.lock();
                 try {
                     for (ServerThread t : clients) {
                         if(now - t.lastAction > SOFT_TIMEOUT && !t.softTimeout) {
@@ -343,7 +336,8 @@ public class BattleshipsServer implements BattleshipsServerInterface {
                             t.softTimeout = true;
                         }
                         if(now - t.lastAction > HARD_TIMEOUT) {
-                            System.out.println("Client " +t.host+" hit hard-timeout limit, disconecting...");
+                            System.out.println("Client " +t.host+
+                               " hit hard-timeout limit, disconecting...");
                             boolean retry = true;
                             while (retry) {
                                 try {   
@@ -355,7 +349,7 @@ public class BattleshipsServer implements BattleshipsServerInterface {
                         }
                     }
                 } catch (Exception e) { e.printStackTrace(); 
-                } finally { BattleshipsServer.this.clientLock.unlock(); }
+                } finally { clientLock.unlock(); }
                 try { this.sleep(CHECK_TIMER); }
                 catch (InterruptedException e) { e.printStackTrace(); }
             }
@@ -364,6 +358,14 @@ public class BattleshipsServer implements BattleshipsServerInterface {
 
 
     public static void main(String [] args) {
-        new BattleshipsServer();
+        System.out.print(PS1);
+
+        Console console = new Console();
+        BattleshipsServer bs = new BattleshipsServer();
+
+        console.addObserver(bs);
+
+        Thread console_thread = new Thread(console);
+        console_thread.start();
     }
 }

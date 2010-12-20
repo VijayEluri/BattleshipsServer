@@ -12,6 +12,9 @@ public class Console extends Observable implements Runnable {
                 String response = br.readLine();
                 setChanged();
                 notifyObservers( response );
+                try {
+                    Thread.currentThread().sleep(100);
+                } catch (InterruptedException e) { }
             }
         }
         catch (IOException e) {
