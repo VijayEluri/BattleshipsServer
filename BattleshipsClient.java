@@ -61,6 +61,8 @@ public class BattleshipsClient implements Observer {
             System.out.println("---------------");
             System.out.println("Console: \t"+console_thread.getState());
             client_thread.thread_state();
+        } else if (split[0].equals("")) {
+            // do nothing
         } else {
             System.out.println("Command not supported");
         }
@@ -118,10 +120,9 @@ public class BattleshipsClient implements Observer {
                 if (split[1].equalsIgnoreCase("ACK")) {
                     try { recv_seqno = Integer.parseInt(split[0]); }
                     catch (NumberFormatException e) {}
-                    System.out.println("ack_seqno = " + ack_seqno+
-                                       " recv_seqno = " + recv_seqno+
-                                       " queue size = " + queue.size());
-                    ack_seqno = recv_seqno;
+                    System.out.println("Recieved " + response);
+                    if (recv_seqno == (ack_seqno + 1))
+                        ack_seqno = recv_seqno;
                 }
             }
         }
@@ -137,7 +138,7 @@ public class BattleshipsClient implements Observer {
         }
     
         private void consume (Message m) {
-            out.println(seqno+" "+m.message);
+            out.println(m.seqno+" "+m.message);
             System.out.println("Sending ["+m.seqno+" "+m.message+"]");
         }
 
@@ -259,7 +260,7 @@ public class BattleshipsClient implements Observer {
         }
     }
 
-    public class Message {
+    private class Message {
         public String message;
         public int seqno;
         public Message (String s, int i) {
