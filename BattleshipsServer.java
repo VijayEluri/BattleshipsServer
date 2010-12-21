@@ -13,9 +13,6 @@ import java.util.Observable;
 
 public class BattleshipsServer implements BattleshipsServerInterface, Observer {
     /* Global variables */
-    private static final int SERVER_PORT = 22191;
-    private static final int WORLD_WIDTH = 50;
-    private static final int WORLD_HEIGHT = 50;
     private static final String PS1 = "Battleships Server> ";
 
     private Listener listener;
@@ -37,7 +34,7 @@ public class BattleshipsServer implements BattleshipsServerInterface, Observer {
         listener.start();
 
         // Start the keepalive thread
-        keepalive = new KeepaliveThread();
+        keepalive = new KeepaliveThread(clients, clientLock);
         keepalive.start();
 
         // Instatiate the world
@@ -211,13 +208,15 @@ public class BattleshipsServer implements BattleshipsServerInterface, Observer {
         return null;
     }
 
+    /* The GameEngine will handle all game-related processing */
     public class GameEngine extends Thread {
         // The purpose of this class is to check for when time-base
         // events in the world happen and to process them accordingly
 
 
     }
-
+    
+    /* The Listener will listen for new connections and handle them */
     public class Listener extends Thread {
 
         private boolean listening = true;
@@ -232,7 +231,8 @@ public class BattleshipsServer implements BattleshipsServerInterface, Observer {
                     Socket newClient = ssocket.accept();
                     System.out.println("\nClient connected");
                     try {
-                        ServerThread t = new ServerThread(newClient);
+                        ServerThread t = new ServerThread(newClient, 
+                                BattleshipsServer.this);
                         clientLock.lock();
                         try {
                             clients.add(t);
@@ -256,265 +256,6 @@ public class BattleshipsServer implements BattleshipsServerInterface, Observer {
         }
     }
 
-    public class ServerListener implements Runnable {
-        private Socket socket;
-        private BufferedReader in;
-        private InputStreamReader isr;
-        private boolean running;
-        private String msg;
-        private LinkedBlockingQueue<Message> queue;
-        int prev_seqno;
-        String[] split;
-        Message m;
-        int seqno = 0;
-
-        public ServerListener (Socket s, LinkedBlockingQueue<Message> q) {
-            this.socket = s;
-            this.queue = q;
-            try {
-                isr = new InputStreamReader(socket.getInputStream());
-                in = new BufferedReader(isr);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-            this.running = true;
-        }
-
-        public void run () {
-            while (running) {
-                try {
-                    while((msg = in.readLine()) != null) {
-                        split = msg.split(" ");
-                        try { seqno = Integer.parseInt(split[0]); }
-                        catch (NumberFormatException e) { e.printStackTrace(); }
-                        String message = msg.substring(seqno/10 + 2);
-                        m = new Message(message, seqno, this.socket);
-                        try {
-                            queue.offer(m, 100, TimeUnit.MILLISECONDS);
-                            System.out.println("Recieved: ["+seqno+" "+message+"]");
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
-                        msg = "";
-                    }
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
-        }
-
-        public void close () {
-        
-        }
-
-    }
-
-    public class ServerSender implements Runnable {
-        private PrintWriter out;
-        private Socket socket;
-        private boolean running;
-        private LinkedBlockingQueue<Message> queue;
-        private int prev_seqno = 0;
-
-        public ServerSender(Socket s, LinkedBlockingQueue q) {
-            this.socket = s;
-            this.queue = q;
-            this.running = true;
-            try {
-                out = new PrintWriter(s.getOutputStream(), true);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-
-        public void run () {
-            while (running) {
-                try { consume(queue.take()); }
-                catch (InterruptedException e) { e.printStackTrace(); }
-            }
-        }
-
-        private void consume (Message m) {
-            out.println(m.seqno + " " +m.message);
-        }
-    }
-
-    public class Worker implements Runnable {
-        private LinkedBlockingQueue<Message> send;
-        private LinkedBlockingQueue<Message> recv;
-        private final int MAX_RETRIES = 1;
-        private int prev_seqno;
-        private boolean running;
-
-        public Worker (LinkedBlockingQueue<Message> recv, 
-                       LinkedBlockingQueue<Message> send) {
-            this.send = send;
-            this.recv = recv;
-            prev_seqno = 0;
-            running = true;
-        }
-        
-        public void run () {
-            while (running) {
-                try { consume(recv.take()); }
-                catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
-        }
-
-        private void consume (Message m) {
-            if (m.seqno == (prev_seqno +1)) {
-                if (parseCommand(m.message)) {
-                    prev_seqno = m.seqno;
-                    try {
-                    send.offer(new Message("ACK", m.seqno), 100, TimeUnit.MILLISECONDS);
-                    } catch (InterruptedException e) {}
-                } else {
-                    try {
-                    send.offer(new Message("NAK", m.seqno), 100, TimeUnit.MILLISECONDS);
-                    } catch (InterruptedException e) {}
-                }
-            } else {
-                // The messages may be misordered.
-                // We will put this message to the back of the queue 
-                // incase we see the ordered message somewhere in the queue
-                // and mark it as having been read once, and purge it on the 
-                // second read.  The client will handle resending.
-                if (m.retries >= MAX_RETRIES)
-                    return;
-                m.retries++;
-                try { recv.offer(m, 100, TimeUnit.MILLISECONDS); }
-                catch (InterruptedException e) { e.printStackTrace(); }
-            }
-        }
-
-        private boolean parseCommand (String s) {
-            return true;
-        }
-
-    }
-
-    public class ServerThread {
-        public Socket socket;
-        public long lastAction;
-        private Thread t_listener;
-        private Thread t_sender;
-        private Thread t_worker;
-        private ServerListener listener;
-        private ServerSender sender;
-        private Worker worker;
-        private LinkedBlockingQueue<Message> recv_queue;
-        private LinkedBlockingQueue<Message> send_queue;
-        private boolean softTimeout;
-
-        public ServerThread (Socket s) throws IOException {
-            this.socket = s;
-            recv_queue = new LinkedBlockingQueue<Message>();
-            send_queue = new LinkedBlockingQueue<Message>();
-            listener = new ServerListener(s, recv_queue);
-            sender = new ServerSender(s, send_queue);
-            worker = new Worker(recv_queue, send_queue);
-            lastAction = System.currentTimeMillis();
-
-            t_worker = new Thread(worker);
-            t_listener = new Thread(listener);
-            t_sender = new Thread(sender);
-        }
-
-        public void start() {
-            if (t_listener != null)
-                t_listener.start();
-            if (t_sender != null)
-                t_sender.start();
-            if (t_worker != null)
-                t_worker.start();
-        }
-        
-        public void print_status () {
-            System.out.println("Thread Status for "+socket.getInetAddress()+":");
-            System.out.println("  S: " +t_sender.getState());
-            System.out.println("  L: " +t_listener.getState());
-            System.out.println("  W: " +t_worker.getState());
-        }
-        public void close() {
-            boolean retry = true;
-            while (retry) {
-                try {   
-                    t_sender.join();
-                    t_listener.join();
-                    t_worker.join();
-                    retry = false;
-                } catch (InterruptedException e) { e.printStackTrace(); }
-            }
-        }
-        public void print_queue () {
-            System.out.println("Queue information:");
-            System.out.println("  Recv: ["+recv_queue.size()+"]");
-            System.out.println("  Send: ["+send_queue.size()+"]");
-        }
-    }
-
-    private class KeepaliveThread extends Thread {
-        // The purpose of this thread is to find clients 
-        // who have dropped and disconnect them
-        
-        private boolean running;
-        private final int SOFT_TIMEOUT = 100000;
-        private final int HARD_TIMEOUT = 200000;
-        private final int CHECK_TIMER = 1000;
-
-        public KeepaliveThread () {
-            running = true;
-        }
-
-        public void run () {
-            while (running) {
-                long now = System.currentTimeMillis();
-                clientLock.lock();
-                try {
-                    for (ServerThread t : clients) {
-                        if(now - t.lastAction > SOFT_TIMEOUT && !t.softTimeout) {
-                            System.out.println("Client " +t.socket.getInetAddress()+
-                                " hit soft-timeout limit");
-                            t.softTimeout = true;
-                        }
-                        if(now - t.lastAction > HARD_TIMEOUT) {
-                            System.out.println("Client " +t.socket.getInetAddress()+
-                               " hit hard-timeout limit, disconecting...");
-                            t.close();
-                            clients.remove(t);
-                        }
-                    }
-                } catch (Exception e) { e.printStackTrace(); 
-                } finally { clientLock.unlock(); }
-                try { this.sleep(CHECK_TIMER); }
-                catch (InterruptedException e) { e.printStackTrace(); }
-            }
-        }
-
-        public void print_status() {
-            System.out.println("Keepalive: " +Thread.currentThread().getState());
-        }
-    }
-
-    private class Message {
-        public String message;
-        public Socket socket;
-        public int seqno;
-        public int retries;
-        public Message (String str, int i, Socket sock) {
-            this.message = str;
-            this.socket = sock;
-            this.seqno = i;
-            retries = 0;
-        }
-        public Message (String str, int i) {
-            this.message = str;
-            this.seqno = i;
-            retries = 0;
-        }
-    }
 
     public static void main(String [] args) {
         System.out.print(PS1);

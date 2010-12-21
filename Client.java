@@ -8,6 +8,10 @@ public class Client {
         this.uid = uid;
         this.current = new Coordinate(locX, locY);
     }
+    public Client () {
+        this.uid = 0;
+        this.current = null;
+    }
     
     public void setLocation(Coordinate newLoc) {
         current = newLoc;
