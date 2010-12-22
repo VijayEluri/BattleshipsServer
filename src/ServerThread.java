@@ -32,7 +32,7 @@ public class ServerThread {
     public ServerThread (Socket s, BattleshipsServerInterface BSint) throws IOException {
         this.socket = s;
         this.ServerAPI = BSint;
-        client = new Client();
+        client = null;
         recv_queue = new LinkedBlockingQueue<Message>();
         send_queue = new LinkedBlockingQueue<Message>();
         listener = new ServerListener(s, recv_queue);
@@ -230,8 +230,11 @@ public class ServerThread {
             } else if (split[0].equals("LOGIN")) {
                 if(c == null) {
                     c = ServerAPI.login(split[1], split[2]);
-                    if (c != null) return true;
-                    else return false;
+                    if (c != null) {
+                        return true;
+                    } else {
+                        return false;
+                    }
                  } else return false;
             } else if (split[0].equals("LOGOUT")) {
             } else if (split[0].equals("FIRE")) {
