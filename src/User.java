@@ -8,6 +8,16 @@ public class User extends ActiveRecord {
 
     public User(int identifier) {
         this.id = identifier;
+        results = load_internal(table, id);
+    }
+
+    public User(String username) {
+        results = load_by_unique_string(table, username, "username");
+        if (results != null) {
+            try {
+                this.id = results.getInt("id");
+            } catch (SQLException e) { e.printStackTrace(); }
+        }
     }
     
     public void load() {

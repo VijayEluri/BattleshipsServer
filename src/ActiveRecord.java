@@ -26,7 +26,30 @@ public abstract class ActiveRecord {
         return null;
     }
 
-    public void save_internal(String table, String field, String value) {
+    public ResultSet load_by_unique_string (String table, String unique_string, String column_name) {
+        Connection conn = Database.getSQLConnection();
+        ResultSet results = null;
+        PreparedStatement query = null;
+        try {
+            query = conn.prepareStatement("SELECT * FROM ? WHERE ?=?;");
+            query.setString(1, table);
+            query.setString(2, column_name);
+            query.setString(3, unique_string);
+            results = query.executeQuery();
+            return results;
+        } catch (SQLException e) {
+            e.printStackTrace(); 
+        } finally {
+            try {
+            if (query != null) query.close();
+            if (conn != null) conn.close();
+            } catch (SQLException e) { e.printStackTrace(); } 
+        }
+        return null;
+        
+    }
+
+    public void set(String table, String field, String value) {
         Connection conn = Database.getSQLConnection();
         PreparedStatement update = null;
         String query = "UPDATE ? SET ? VALUES ?;";   
