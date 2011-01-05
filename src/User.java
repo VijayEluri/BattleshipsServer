@@ -1,42 +1,35 @@
-import java.util.LinkedList;
+import java.sql.*;
 
 public class User extends ActiveRecord {
     
     private String table = "users";
     private int id;
-    private LinkedList<Field> fields;
+    private ResultSet results;
 
     public User(int identifier) {
         this.id = identifier;
-        this.fields = new LinkedList<Field>();
     }
     
     public void load() {
-       load_internal(table, id); 
+       results = load_internal(table, id); 
     }
 
     public void save () {
-        save_internal(table, fields);
+        try {
+            results.updateRow();
+        } catch (SQLException e) { e.printStackTrace(); }
     }
 
     public void setUsername(String s) {
-        setColumn("username", s);
+        try {
+            results.updateString("username", s);
+        } catch (SQLException e) { e.printStackTrace(); }
     }
     
     public void setPassword(String s) {
-        setColumn("passwd", s);
+        try {
+            results.updateString("passwd", s);
+        } catch (SQLException e) { e.printStackTrace(); }
     }
 
-    private void setColumn(String field, String val) {
-        
-        for (Field s : fields) {
-            if (s.field.equals(field)) {
-                s.value = val;
-                s.changed = true;
-                return;
-            }
-        }
-        fields.addLast(new Field(field, val));
-        return;
-    }
 }
