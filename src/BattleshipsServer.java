@@ -154,23 +154,15 @@ public class BattleshipsServer implements BattleshipsServerInterface, Observer {
         // verify login information... later...
         
         // Place him in the world
-        Client tester1 = new Client (1, WORLD_WIDTH/2-1, WORLD_HEIGHT/2);
-        Client tester2 = new Client (2, WORLD_WIDTH/2+1, WORLD_HEIGHT/2);
-        Coordinate placed;
+        User user = new User(username);
+        if (!user.verifyPassword)
+            return null;
 
-        if (username.equals("tester1")) {
-            placed = placePlayer(tester1, true); 
-            if (placed == null) return null;
-            tester1.setLocation(placed);
-            return tester1;
-        } else if (username.equals("tester2")) {
-            placed = placePlayer(tester2, true); 
-            if (placed == null) return null;
-            tester2.setLocation(placed);
-            return tester2;
-        }
-
-        return null;
+        Client client = new Client (user.getID(), user.getX(), user.getY());
+        Coordinated placed;
+        placed = placePlayer(client, true);
+        client.setLocation(placed);
+        return client;
     }
 
     /* These are private functions for fulfilling the API methods */
